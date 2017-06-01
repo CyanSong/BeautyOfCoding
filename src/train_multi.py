@@ -2,10 +2,10 @@ from data_process import *
 import sys
 import numpy as np
 from keras.preprocessing import sequence
-from keras.optimizers import SGD, RMSprop, Adagrad, Adam
+from keras.optimizers import SGD, RMSprop, Adagrad
 from keras.utils import np_utils
 from keras.models import Sequential
-from keras.layers.core import Dense, Dropout, Activation, Masking
+from keras.layers.core import Dense, Dropout, Activation
 from keras.layers.recurrent import LSTM, GRU
 from keras.models import Model
 from keras.layers import Input, Dense, concatenate, normalization
@@ -42,6 +42,7 @@ def train(trainjson, epoch, batch_size, netq, neta, netfull, activate, drop_out,
             if index2 == neta[0]:
                 break
             xa[index1][index2] = item2
+
     ya = np.array(taglist)
     print('Build model...')
     # regularizer param
@@ -57,54 +58,59 @@ def train(trainjson, epoch, batch_size, netq, neta, netfull, activate, drop_out,
     if not os.path.isfile(modelname):
         # seperate LSTM for qustion and answers
         question_vector_input = Input(shape=(netq[0], 60), dtype="float32", name='question_vector_input')
-        question_vector_mask = Masking(mask_value=0.0)(question_vector_input)
-        question_features = LSTM(output_dim=netq[1],
-                                 kernel_initializer=initializers.truncated_normal(stddev=0.01))(question_vector_mask)
         answer_vector_input = Input(shape=(neta[0], 60), dtype="float32", name='answer_vector_input')
-        answer_vector_mask = Masking(mask_value=0.0)(answer_vector_input)
-        answer_features = LSTM(output_dim=neta[1],
-                               kernel_initializer=initializers.truncated_normal(stddev=0.01))(answer_vector_mask)
+        question_features = []
+        answer_features = []
+        for i in range(10):
+            question_features.append(LSTM(output_dim=netq[1], input_dim=60, input_length=16,
+                                          kernel_initializer=initializers.truncated_normal(stddev=0.001))(
+                question_vector_input))
+            answer_features.append(LSTM(output_dim=neta[1], input_dim=60, input_length=32,
+                                        kernel_initializer=initializers.truncated_normal(stddev=0.001))(
+                answer_vector_input))
         # merge two LSTMs
-        question_features = normalization.BatchNormalization()(question_features)
-        answer_features = normalization.BatchNormalization()(answer_features)
-        features = concatenate([answer_features, question_features])
-        # features = Activation(activate)(features)
-        # full connected layer
-        for dim in netfull:
-            features = Dense(dim, kernel_regularizer=reg, use_bias=True,
-                             kernel_initializer=initializers.truncated_normal(stddev=0.01))(features)
+        for index, question_feature in enumerate(question_features):
+            question_features[index] = normalization.BatchNormalization()(question_feature)
+        for index, answer_feature in enumerate(answer_features):
+            answer_features[index] = normalization.BatchNormalization()(answer_feature)
+        features = concatenate(answer_features + question_features)
+
+        for dim in netfull[:-1]:
+            features = Dense(dim,
+                             kernel_initializer=initializers.truncated_normal(stddev=0.001))(features)
             # using normalization or not
             if (normal_flag == 'true'):
                 features = normalization.BatchNormalization()(features)
             features = Activation(activate)(features)
+        features = Dense(netfull[-1],
+                         kernel_initializer=initializers.truncated_normal(stddev=0.01))(features)
+
         # drop out layer
         final_layer = Dropout(drop_out)(features)
         # sigmoid to 0-1
         main_output = Dense(1, activation='sigmoid', name='main_output')(final_layer)
         # finish model
         model = Model(inputs=[question_vector_input, answer_vector_input], outputs=[main_output])
-        model.compile(optimizer=Adam(0.0001), loss='binary_crossentropy', metrics=['accuracy'])
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     else:
-        print('load previous model')
         model = load_model(modelname)
     best_score = 0
     best_epoch = 0
-    if not os.path.isfile('../json_data/quicktest.json'):
-        savetojson('../raw_data/dev.txt','../json_data/quicktest.json',8000)
-    test_q, test_a = getvalid(netq[0], neta[0], '../json_data/quicktest.json')
+
+    test_q, test_a = getvalid(netq[0], neta[0], '../json_data/test.json')
     quelist, answerlist, datalist = getdata('../raw_data/dev.txt', 8000)
 
     for i in range(epoch):
-        model.fit([xq, xa], [ya], batch_size=batch_size, nb_epoch=1, validation_split=0.01)  # 训练时间为若干个小时
+        model.fit([xq, xa], [ya], batch_size=batch_size, nb_epoch=1)  # 训练时间为若干个小时
         cur_score = valid(model, test_q, test_a, quelist, answerlist)
         print('In epoch', i + 1, 'MRR', cur_score)
         if cur_score > best_score:
             best_score = cur_score
             best_epoch = i + 1
-        model.save(modelname[:-3]+str(epoch)+'.h5')
     print('best epoch', best_epoch, 'best MRR', best_score)
-    f=open('../result/'+modelname[9:-3]+'.txt','w')
-    f.write('best epoch'+ str(best_epoch)+ 'best MRR'+str( best_score))
+    model.save(modelname)
+    f = open('../result/' + modelname[0:-3] + '.txt', 'w')
+    f.write('best epoch' + str(best_epoch) + 'best MRR' + str(best_score))
     f.close()
 
 def getvalid(q_in, a_in, testfile):
