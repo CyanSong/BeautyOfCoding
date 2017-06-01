@@ -15,7 +15,8 @@ from keras.models import load_model
 import os
 
 
-def train(trainjson, epoch, batch_size, netq, neta, netfull, activate, drop_out, modelname, reg_flag, normal_flag):
+def train(trainjson, epoch, batch_size, netq, neta, netfull, activate, drop_out, modelname, reg_flag, normal_flag,
+          optimizer):
     data = loadfromjson(trainjson)
     # get label
     taglist = []
@@ -83,29 +84,37 @@ def train(trainjson, epoch, batch_size, netq, neta, netfull, activate, drop_out,
         main_output = Dense(1, activation='sigmoid', name='main_output')(final_layer)
         # finish model
         model = Model(inputs=[question_vector_input, answer_vector_input], outputs=[main_output])
-        model.compile(optimizer=Adam(0.0001), loss='binary_crossentropy', metrics=['accuracy'])
+
+        opt = optimizer.split('_')[0]
+        if opt == 'rmsprop':
+            opt = RMSprop((float)(optimizer.split['_'][1]))
+        else:
+            opt = Adam((float)(optimizer.split['_'][1]))
+
+        model.compile(optimizer=opt, loss='binary_crossentropy', metrics=['accuracy'])
     else:
         print('load previous model')
         model = load_model(modelname)
     best_score = 0
     best_epoch = 0
     if not os.path.isfile('../json_data/quicktest.json'):
-        savetojson('../raw_data/dev.txt','../json_data/quicktest.json',8000)
+        savetojson('../raw_data/dev.txt', '../json_data/quicktest.json', 8000)
     test_q, test_a = getvalid(netq[0], neta[0], '../json_data/quicktest.json')
     quelist, answerlist, datalist = getdata('../raw_data/dev.txt', 8000)
 
     for i in range(epoch):
-        model.fit([xq, xa], [ya], batch_size=batch_size, nb_epoch=1, validation_split=0.01)  # 训练时间为若干个小时
+        model.fit([xq, xa], [ya], batch_size=batch_size, nb_epoch=1)  # 训练时间为若干个小时
         cur_score = valid(model, test_q, test_a, quelist, answerlist)
         print('In epoch', i + 1, 'MRR', cur_score)
         if cur_score > best_score:
             best_score = cur_score
             best_epoch = i + 1
-        model.save(modelname[:-3]+str(epoch)+'.h5')
+        model.save(modelname[:-3] + str(epoch) + '.h5')
     print('best epoch', best_epoch, 'best MRR', best_score)
-    f=open('../result/'+modelname[9:-3]+'.txt','w')
-    f.write('best epoch'+ str(best_epoch)+ 'best MRR'+str( best_score))
+    f = open('../result/' + modelname[9:-3] + '.txt', 'w')
+    f.write('best epoch' + str(best_epoch) + 'best MRR' + str(best_score))
     f.close()
+
 
 def getvalid(q_in, a_in, testfile):
     data = loadfromjson(testfile)
@@ -156,7 +165,7 @@ if __name__ == '__main__':
     raw_data_path = '../raw_data/'
     json_data_path = '../json_data/'
     model_path = '../model/'
-    if len(sys.argv) == 12:
+    if len(sys.argv) == 13:
         if (sys.argv[1] == 'new'):
             savetojson(raw_data_path + 'train.txt', json_data_path + 'train.json', int(sys.argv[9]))
         epoch = int(sys.argv[2])
@@ -171,11 +180,11 @@ if __name__ == '__main__':
             modelname = modelname + '_' + arg
         modelname = modelname + '.h5'
         train(json_data_path + 'train.json', epoch, batch_size,
-              net_lstm_q, net_lstm_a, net_full, activate, drop_out, modelname, sys.argv[10], sys.argv[11])
+              net_lstm_q, net_lstm_a, net_full, activate, drop_out, modelname, sys.argv[10], sys.argv[11], sys.argv[12])
     else:
         print(
             'Usage: python train.py [jsonfile] [epoch]  [batch_size] [net_LSTM_question] [net_LSTM_answer] '
-            '[net_full] [net_full activate] [drop_out] [train_dara_size] [regular] [batch normalization] ')
+            '[net_full] [net_full activate] [drop_out] [train_dara_size] [regular] [batch normalization] [optimizer]')
         print('#jsonfile new/exist')
         print('#net_LSTM_question 16_64')
         print('#net_LSTM_answer 32_64')
@@ -183,6 +192,7 @@ if __name__ == '__main__':
         print('#net_full_activate relu/sigmoid')
         print('#regular l2_0.01/l1_0.01/None')
         print('#batch normalization true/false')
-        print('Usage example:python train.py exist 15 64 16_32 32_64 64 sigmoid 0.75 30000 l1_0.001 false')
+        print('#optimizer adam_0.001/rmsprop_0.001')
+        print('Usage example:python train.py exist 15 64 16_32 32_64 64 sigmoid 0.75 30000 l1_0.001 false adam_0.001')
 
     exit(0)
