@@ -8,6 +8,7 @@ from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Activation, Masking
 from keras.layers.recurrent import LSTM, GRU
 from keras.models import Model
+from keras.losses import mean_squared_error
 from keras.layers import Input, Dense, concatenate, normalization
 from keras.regularizers import l1, l2
 from keras import initializers
@@ -16,7 +17,7 @@ import os
 
 
 def train(trainjson, epoch, batch_size, netq, neta, netfull, activate, drop_out, modelname, reg_flag, normal_flag,
-          optimizer):
+          optim):
     data = loadfromjson(trainjson)
     # get label
     taglist = []
@@ -44,6 +45,24 @@ def train(trainjson, epoch, batch_size, netq, neta, netfull, activate, drop_out,
                 break
             xa[index1][index2] = item2
     ya = np.array(taglist)
+    trueya = []
+    truexa = []
+    truexq = []
+    for index, label in enumerate(taglist):
+        if label == 1:
+            trueya.append(label)
+            truexa.append(xa[index])
+            truexq.append(xq[index])
+    assert (len(trueya) != 0)
+    print(len(truexq))
+    truexa = np.repeat(truexa, 2, axis=0)
+    truexq = np.repeat(truexq, 2, axis=0)
+    trueya = np.repeat(trueya, 2, axis=0)
+    ya = np.concatenate((ya, np.array(trueya)))
+    # print(xa.shape,truexa.shape)
+    xa = np.concatenate((xa, np.array(truexa)))
+    xq = np.concatenate((xq, np.array(truexq)))
+
     print('Build model...')
     # regularizer param
     if reg_flag == 'None':
@@ -85,11 +104,12 @@ def train(trainjson, epoch, batch_size, netq, neta, netfull, activate, drop_out,
         # finish model
         model = Model(inputs=[question_vector_input, answer_vector_input], outputs=[main_output])
 
-        opt = optimizer.split('_')[0]
+        opt = optim.split('_')[0]
+
         if opt == 'rmsprop':
-            opt = RMSprop((float)(optimizer.split['_'][1]))
+            opt = RMSprop((float)(optim.split('_')[1]))
         else:
-            opt = Adam((float)(optimizer.split['_'][1]))
+            opt = Adam((float)(optim.split('_')[1]))
 
         model.compile(optimizer=opt, loss='binary_crossentropy', metrics=['accuracy'])
     else:
